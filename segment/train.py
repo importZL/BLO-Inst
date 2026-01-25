@@ -21,19 +21,18 @@ from tqdm import tqdm
 from PIL import Image, ImageOps, ImageDraw
 
 FILE = Path(__file__).resolve()
-ROOT = FILE.parents[1]  # YOLOv5 root directory
+ROOT = FILE.parents[1]
 if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))  # add ROOT to PATH
-ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
+    sys.path.append(str(ROOT))
+ROOT = Path(os.path.relpath(ROOT, Path.cwd()))
 
 import torch.nn.functional as F
 
-import segment.val as validate  # for end-of-epoch mAP
+import segment.val as validate
 from models.experimental import attempt_load
 from models.yolo import SegmentationModel
 from models.segment_anything import sam_model_registry
 from models.sam_lora_mask_decoder import LoRA_Sam
-# from models.sam_lora_image_mask import LoRA_Sam
 from utils.autoanchor import check_anchors
 from utils.autobatch import check_train_batch_size
 from utils.callbacks import Callbacks
@@ -54,42 +53,9 @@ from utils.torch_utils import (EarlyStopping, ModelEMA, de_parallel, select_devi
                                smart_resume, torch_distributed_zero_first)
 from utils.dataloaders import InfiniteDataLoader, seed_worker
 
-LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable/elastic/run.html
+LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1)) 
 RANK = int(os.getenv('RANK', -1))
 WORLD_SIZE = int(os.getenv('WORLD_SIZE', 1))
-
-
-def loss_cal_old(model, imgs, targets, masks, nb, ema, single_cls, sam_lora, imgsz, device):
-    out, pred = model(imgs)
-    lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)]
-    nm = de_parallel(ema.ema).model[-1].nm if isinstance(model, SegmentationModel) else 32  # number of masks
-    out = non_max_suppression(out, conf_thres=0.001, iou_thres=0.25, labels=lb, 
-                                multi_label=True, agnostic=single_cls, max_det=300, nm=nm)
-    sam_bboxes, scores, labels = output_to_target_sam(out, max_det=15, thre=0.25)
-    keep_bboxes = []
-    for i, bbox in enumerate(sam_bboxes):
-        if (bbox[2]-bbox[0]) < 1 or (bbox[3]-bbox[1]) < 1:
-            pass
-        else:
-            keep_bboxes.append(i)
-    sam_bboxes = sam_bboxes[keep_bboxes] 
-    pred_bboxes = sam_bboxes.clone()
-    
-    if sam_bboxes.shape[0] != 0:
-        sam_output = sam_lora(imgs, multimask_output=False, image_size=imgsz, bbox=sam_bboxes)
-        # pred_masks_logits, pred_masks = torch.max(sam_output['low_res_logits'],dim=1)
-        pred_masks_logits = sam_output['low_res_logits'][:,0,:,:]
-        mask_gt = torch.cat([masks.to(device).float()]*sam_bboxes.shape[0], dim=0)
-        loss_sam = F.binary_cross_entropy_with_logits(torch.sigmoid(pred_masks_logits), mask_gt, reduction="none")
-        # re-scale the sam_bboxes to fit the shape of masks
-        scale_x = pred_masks_logits.shape[-2]/imgs.shape[-2]
-        scale_y = pred_masks_logits.shape[-1]/imgs.shape[-1]
-        sam_bboxes[:, 0], sam_bboxes[:, 2] = sam_bboxes[:, 0]*scale_x, sam_bboxes[:, 2]*scale_x
-        sam_bboxes[:, 1], sam_bboxes[:, 3] = sam_bboxes[:, 1]*scale_x, sam_bboxes[:, 3]*scale_y
-        loss_sam = (crop(loss_sam, sam_bboxes).mean(dim=(1, 2))).sum()
-        return loss_sam, pred_bboxes, pred_masks_logits, pred
-    else:
-        return None, None, None, pred
 
 
 def loss_cal(model, imgs, targets, masks, nb, ema, single_cls, sam_lora, imgsz, device):
@@ -183,11 +149,10 @@ def visualize_masks_on_image(pred_masks, image, output_path="output_image_with_m
     final_image.save(output_path)
     
 
-def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictionary
+def train(hyp, opt, device, callbacks):
     save_dir, epochs, batch_size, weights, single_cls, evolve, data, cfg, resume, noval, nosave, workers, freeze, mask_ratio = \
         Path(opt.save_dir), opt.epochs, opt.batch_size, opt.weights, opt.single_cls, opt.evolve, opt.data, opt.cfg, \
         opt.resume, opt.noval, opt.nosave, opt.workers, opt.freeze, opt.mask_ratio
-    # callbacks.run('on_pretrain_routine_start')
 
     # Directories
     w = save_dir / 'weights'  # weights dir
@@ -459,25 +424,6 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             torch.nn.utils.clip_grad_norm_(sam_lora.parameters(), max_norm=10.0)  # clip gradients
             val_loss.backward()
             optimizer_sam.step()
-            
-            
-            # visulize the bboxes in the image
-            test_img = Image.fromarray(np.uint8(val_imgs.cpu().numpy()*255)[0].transpose(1,2,0))
-            test_img.save('./temp/train_img.png')
-            logger.log_images('./temp/train.png', "train/image", ni+1)
-            draw = ImageDraw.Draw(test_img)
-            for bbox in val_pred_bboxes:
-                x_min, y_min, x_max, y_max = bbox.tolist()  # Convert tensor to list
-                draw.rectangle([x_min, y_min, x_max, y_max], outline="red", width=3)    
-            test_img.save('./temp/train_bbox.png')    
-            logger.log_images('./temp/train_bbox.png', "train/bbox", ni+1)
-            # visualize the masks in the image
-            pred_masks = val_pred_masks_logits > 0
-            pred_masks = torch.as_tensor(pred_masks, dtype=torch.uint8)
-            visualize_masks_on_image(pred_masks, val_imgs, './temp/train_mask.png')
-            logger.log_images('./temp/train_mask.png', "train/mask", ni+1)
-            visualize_masks_on_image(val_masks, val_imgs, './temp/train_gt.png')
-            logger.log_images('./temp/train_gt.png', "train/gt", ni+1)
 
             # Log
             if RANK in {-1, 0}:
@@ -635,7 +581,7 @@ def parse_opt(known=False):
     
     # SAM Args
     parser.add_argument('--vit_name', type=str, default='vit_b', help='select one vit model')
-    parser.add_argument('--sam_ckpt', type=str, default='/data1/li/Auto_SAMed/checkpoints/sam_vit_b_01ec64.pth', help='Pretrained checkpoint')
+    parser.add_argument('--sam_ckpt', type=str, default='<your sam checkpoint path>', help='Pretrained checkpoint')
     parser.add_argument('--data_rate', type=float, default=0.5, help='')
     return parser.parse_known_args()[0] if known else parser.parse_args()
 
