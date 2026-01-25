@@ -1,0 +1,9 @@
+train: /data2/li/workspace/data/trans/train.txt
+val: /data2/li/workspace/data/trans/val.txt
+test: /data2/li/workspace/data/trans/val.txt
+
+# number of classes
+nc: 2
+
+# class names
+names: ["Car", "LaneLine"]

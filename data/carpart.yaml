@@ -1,0 +1,9 @@
+train: /data2/li/workspace/data/CarPart/train.txt
+val: /data2/li/workspace/data/CarPart/val.txt
+test: /data2/li/workspace/data/CarPart/val.txt
+
+# number of classes
+nc: 9
+
+# class names
+names: ['bumper', 'glass', 'door', 'light', 'hood', 'mirror', 'tailgate', 'trunk', 'wheel']

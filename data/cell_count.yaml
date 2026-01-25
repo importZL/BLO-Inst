@@ -1,0 +1,7 @@
+train: /data2/li/workspace/data/cell_count/train.txt
+val: /data2/li/workspace/data/cell_count/val.txt
+test: /data2/li/workspace/data/cell_count/val.txt
+# number of classes
+nc: 1
+# class names
+names: ['cell']
