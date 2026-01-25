@@ -18,8 +18,8 @@ conda env create -f environment.yml
 ## Training
 You can try our code on one of the public datasets we used in our experiments. Here are the instructions: 
 
-1. We provided the [Penn-Fudan Database](./PennFudanPed/)
-2. Pretrain the YOLO model on this dataset.
+1. We provide the [Penn-Fudan Database](./PennFudanPed/)
+2. Pretrain the YOLO model on this dataset. We also provide the [checkpoint](./yolo-pretrained/ped.pt) for your quick try.
 2. Change the pretrained weights root setting in [train.sh](train.sh) as `<Your weight path>`.
 3. Run this commend to start the training process:
 ```bash
